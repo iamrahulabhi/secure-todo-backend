@@ -130,7 +130,7 @@ def forgot_password():
     sender_email = os.getenv('SENDER_EMAIL')
     sender_password = os.getenv('SENDER_PASSWORD')
     link =os.getenv('BASE_URL')
-    reset_link = f"http://localhost:3000/reset-password?token={token}" # Change to Vercel URL for production
+    reset_link = f"{link}/reset-password?token={token}" # Change to Vercel URL for production
 
     # --- NEW: Update email content to include OTP ---
     message = MIMEMultipart("alternative")
