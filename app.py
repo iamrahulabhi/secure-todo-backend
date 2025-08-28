@@ -257,6 +257,8 @@ def delete_todo(current_user_id, id):
         return jsonify({"message": "Todo not found or access denied"}), 404
     return jsonify({"message": "Todo deleted successfully"}), 200
 
+
+
 # --- Final Step ---
 # Create requirements.txt for deployment
 # Run this command in your terminal: pip freeze > requirements.txt
