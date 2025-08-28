@@ -9,6 +9,12 @@ from flask_cors import CORS
 from bson.objectid import ObjectId
 from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
+import secrets
+import smtplib
+import ssl
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+import random
 
 load_dotenv()
 
@@ -60,17 +66,30 @@ def token_required(f):
 @app.route('/api/register', methods=['POST'])
 def register():
     data = request.get_json()
-    hashed_password = generate_password_hash(data['password'], method='pbkdf2:sha256')
     
-    # Check if user already exists
-    if users_collection.find_one({'username': data['username']}):
-        return jsonify({'message': 'Username already exists!'}), 409
+    # --- NEW: Get email from request data ---
+    email = data.get('email')
+    username = data.get('username')
+    password = data.get('password')
 
+    if not email or not username or not password:
+        return jsonify({'message': 'Missing username, email, or password!'}), 400
+
+    # --- NEW: Check if username OR email already exists ---
+    if users_collection.find_one({'username': username}):
+        return jsonify({'message': 'Username already exists!'}), 409
+    
+    if users_collection.find_one({'email': email}):
+        return jsonify({'message': 'Email address already in use!'}), 409
+
+    hashed_password = generate_password_hash(password, method='pbkdf2:sha256')
+    
     users_collection.insert_one({
-        'username': data['username'],
+        'username': username,
+        'email': email, # --- NEW: Save email to the database ---
         'password': hashed_password
     })
-    return jsonify({'message': 'New user registered!'}), 201
+    return jsonify({'message': 'New user registered successfully!'}), 201
 
 @app.route('/api/login', methods=['POST'])
 def login():
@@ -88,6 +107,108 @@ def login():
         return jsonify({'token': token})
 
     return jsonify({'message': 'Invalid username or password'}), 401
+
+@app.route('/api/forgot-password', methods=['POST'])
+def forgot_password():
+    data = request.get_json()
+    email = data.get('email')
+    user = users_collection.find_one({'email': email})
+
+    if not user:
+        return jsonify({'message': 'If a user with that email exists, a reset link has been sent.'}), 200
+
+    # --- NEW: Generate OTP and update token logic ---
+    token = secrets.token_urlsafe(16)
+    otp = str(random.randint(100000, 999999)) # Generate a 6-digit OTP
+    expiry = datetime.datetime.utcnow() + datetime.timedelta(minutes=15) # Shorten expiry for OTP
+
+    users_collection.update_one(
+        {'_id': user['_id']},
+        {'$set': {'reset_token': token, 'reset_token_expiry': expiry, 'otp': otp}}
+    )
+
+    sender_email = os.getenv('SENDER_EMAIL')
+    sender_password = os.getenv('SENDER_PASSWORD')
+    reset_link = f"http://localhost:3000/reset-password?token={token}" # Change to Vercel URL for production
+
+    # --- NEW: Update email content to include OTP ---
+    message = MIMEMultipart("alternative")
+    message["Subject"] = "Password Reset Request"
+    message["From"] = sender_email
+    message["To"] = email
+    html_content = f"""
+    <html>
+      <body>
+        <p>Hi,<br>
+           You requested a password reset. Please use the following One-Time Password (OTP) and click the link below.<br>
+           Your OTP is: <h2>{otp}</h2>
+           <a href="{reset_link}">Click here to reset your password</a><br>
+           This link and OTP will expire in 15 minutes.
+        </p>
+      </body>
+    </html>
+    """
+    message.attach(MIMEText(html_content, "html"))
+
+    # ... (keep the smtplib sending logic exactly the same) ...
+    context = ssl.create_default_context()
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context) as server:
+            server.login(sender_email, sender_password)
+            server.sendmail(sender_email, email, message.as_string())
+    except Exception as e:
+        return jsonify({'message': f'Could not send email. Error: {e}'}), 500
+
+    return jsonify({'message': 'If a user with that email exists, a reset link has been sent.'}), 200
+
+
+@app.route('/api/reset-password', methods=['POST'])
+def reset_password():
+    data = request.get_json()
+    token = data.get('token')
+    new_password = data.get('password')
+
+    user = users_collection.find_one({
+        'reset_token': token,
+        'reset_token_expiry': {'$gt': datetime.datetime.utcnow()}
+    })
+
+    if not user:
+        return jsonify({'message': 'Invalid or expired token.'}), 400
+
+    hashed_password = generate_password_hash(new_password, method='pbkdf2:sha256')
+    users_collection.update_one(
+        {'_id': user['_id']},
+        {
+            '$set': {'password': hashed_password},
+            '$unset': {'reset_token': "", 'reset_token_expiry': ""}
+        }
+    )
+    return jsonify({'message': 'Password has been reset successfully.'}), 200
+
+@app.route('/api/verify-otp', methods=['POST'])
+def verify_otp():
+    data = request.get_json()
+    token = data.get('token')
+    otp = data.get('otp')
+
+    if not token or not otp:
+        return jsonify({'message': 'Token and OTP are required.'}), 400
+
+    # Find user based on the token from the URL
+    user = users_collection.find_one({
+        'reset_token': token,
+        'reset_token_expiry': {'$gt': datetime.datetime.utcnow()}
+    })
+
+    if not user:
+        return jsonify({'message': 'Invalid or expired token.'}), 400
+
+    # Check if the provided OTP matches the one in the database
+    if user.get('otp') == otp:
+        return jsonify({'message': 'OTP verified successfully.'}), 200
+    else:
+        return jsonify({'message': 'Invalid OTP.'}), 400
 
 
 # --- SECURE To-Do Routes ---
