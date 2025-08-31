@@ -224,11 +224,17 @@ def get_todos(current_user_id):
 def add_todo(current_user_id):
     data = request.get_json()
     new_todo = {
-        "text": data["text"],
+        "text": data.get("text", ""),
+        "description": data.get("description", ""),
+        "tag": data.get("tag", ""),
         "completed": False,
         "priority": data.get("priority", "Medium"),
         "dueDate": data.get("dueDate"),
-        "user_id": current_user_id # Link todo to the logged-in user
+        "time": data.get("time", ""), # NEW
+        "subtasks": data.get("subtasks", []), # NEW
+        "notes": data.get("notes", ""), # NEW
+        "attachments": data.get("attachments", []), # NEW (stores filenames)
+        "user_id": current_user_id
     }
     result = todos_collection.insert_one(new_todo)
     created_todo = todos_collection.find_one({"_id": result.inserted_id})
@@ -238,13 +244,19 @@ def add_todo(current_user_id):
 @token_required
 def update_todo(current_user_id, id):
     data = request.get_json()
-    # Ensure users can't update a todo that doesn't belong to them
     query = {"_id": ObjectId(id), "user_id": current_user_id}
     if not todos_collection.find_one(query):
         return jsonify({"message": "Todo not found or access denied"}), 404
         
     data.pop("_id", None)
-    todos_collection.update_one(query, {"$set": data})
+    
+    # Create a clean update object
+    update_fields = {}
+    for key in ["text", "description", "tag", "completed", "priority", "dueDate", "time", "subtasks", "notes", "attachments"]:
+        if key in data:
+            update_fields[key] = data[key]
+    
+    todos_collection.update_one(query, {"$set": update_fields})
     updated_todo = todos_collection.find_one(query)
     return jsonify(serialize_doc(updated_todo))
 
