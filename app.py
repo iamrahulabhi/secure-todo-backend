@@ -230,6 +230,7 @@ def add_todo(current_user_id):
         "completed": False,
         "priority": data.get("priority", "Medium"),
         "dueDate": data.get("dueDate"),
+        "startDate": data.get("startDate"), # NEW
         "time": data.get("time", ""), # NEW
         "subtasks": data.get("subtasks", []), # NEW
         "notes": data.get("notes", ""), # NEW
@@ -252,7 +253,7 @@ def update_todo(current_user_id, id):
     
     # Create a clean update object
     update_fields = {}
-    for key in ["text", "description", "tag", "completed", "priority", "dueDate", "time", "subtasks", "notes", "attachments"]:
+    for key in ["text", "description", "tag", "completed", "priority", "dueDate","startDate", "time", "subtasks", "notes", "attachments"]:
         if key in data:
             update_fields[key] = data[key]
     
@@ -270,7 +271,3 @@ def delete_todo(current_user_id, id):
     return jsonify({"message": "Todo deleted successfully"}), 200
 
 
-
-# --- Final Step ---
-# Create requirements.txt for deployment
-# Run this command in your terminal: pip freeze > requirements.txt
